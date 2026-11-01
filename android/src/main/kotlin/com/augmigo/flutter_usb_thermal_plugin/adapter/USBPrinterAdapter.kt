@@ -74,16 +74,30 @@ class USBPrinterAdapter {
     fun init(reactContext: Context?) {
         mContext = reactContext
         mUSBManager = mContext!!.getSystemService(Context.USB_SERVICE) as UsbManager
+        
+        // BULLETPROOF PERMISSION FIX: Make Intent explicit for Android 14
+        val permissionIntent = Intent(ACTION_USB_PERMISSION).apply {
+            setPackage(mContext!!.packageName)
+        }
+        
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             mPermissionIntent =
-                PendingIntent.getBroadcast(mContext, 0, Intent(ACTION_USB_PERMISSION), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE)
+                PendingIntent.getBroadcast(mContext, 0, permissionIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE)
         } else {
             mPermissionIntent =
-                PendingIntent.getBroadcast(mContext, 0, Intent(ACTION_USB_PERMISSION), PendingIntent.FLAG_UPDATE_CURRENT)
+                PendingIntent.getBroadcast(mContext, 0, permissionIntent, PendingIntent.FLAG_UPDATE_CURRENT)
         }
+        
         val filter = IntentFilter(ACTION_USB_PERMISSION)
         filter.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
-        mContext!!.registerReceiver(mUsbDeviceReceiver, filter)
+        
+        // FIX: RECEIVER_NOT_EXPORTED required for Android 13+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            mContext!!.registerReceiver(mUsbDeviceReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            mContext!!.registerReceiver(mUsbDeviceReceiver, filter)
+        }
+        
         Log.v(LOG_TAG, "USB Printer initialized")
     }
 
@@ -122,6 +136,19 @@ class USBPrinterAdapter {
                         "Request for device: vendor_id: " + usbDevice.vendorId + ", product_id: " + usbDevice.productId
                     )
                     closeConnectionIfExists()
+                    
+                    // BULLETPROOF PERMISSION FIX: Ensure PendingIntent is not null
+                    if (mPermissionIntent == null && mContext != null) {
+                        val permissionIntent = Intent(ACTION_USB_PERMISSION).apply {
+                            setPackage(mContext!!.packageName)
+                        }
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                            mPermissionIntent = PendingIntent.getBroadcast(mContext, 0, permissionIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE)
+                        } else {
+                            mPermissionIntent = PendingIntent.getBroadcast(mContext, 0, permissionIntent, PendingIntent.FLAG_UPDATE_CURRENT)
+                        }
+                    }
+                    
                     mUSBManager!!.requestPermission(usbDevice, mPermissionIntent)
                     return true
                 }
