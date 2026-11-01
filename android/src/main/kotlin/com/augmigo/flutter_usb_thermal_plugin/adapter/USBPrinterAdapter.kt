@@ -18,7 +18,6 @@ class USBPrinterAdapter {
 
     private var mInstance: USBPrinterAdapter? = null
 
-
     private val LOG_TAG = "Flutter USB Printer"
     private var mContext: Context? = null
     private var mUSBManager: UsbManager? = null
@@ -29,9 +28,6 @@ class USBPrinterAdapter {
     private var mEndPoint: UsbEndpoint? = null
 
     private val ACTION_USB_PERMISSION = "com.augmigo.flutter_usb_thermal_plugin.USB_PERMISSION"
-
-
-
 
     fun getInstance(): USBPrinterAdapter? {
         if (mInstance == null) {
@@ -101,7 +97,6 @@ class USBPrinterAdapter {
         Log.v(LOG_TAG, "USB Printer initialized")
     }
 
-
     fun closeConnectionIfExists() {
         if (mUsbDeviceConnection != null) {
             mUsbDeviceConnection!!.releaseInterface(mUsbInterface)
@@ -109,7 +104,7 @@ class USBPrinterAdapter {
             mUsbInterface = null
             mEndPoint = null
             mUsbDeviceConnection = null
-            mUsbDevice=null
+            mUsbDevice = null
         }
     }
 
@@ -205,8 +200,7 @@ class USBPrinterAdapter {
             Log.v(LOG_TAG, "Connected to device")
             Thread {
                 val bytes = text.toByteArray(Charset.forName("UTF-8"))
-                val b = mUsbDeviceConnection!!.bulkTransfer(mEndPoint, bytes, bytes.size, 100000)
-                Log.i(LOG_TAG, "Return Status: b-->$b")
+                sendBytesInChunks(bytes)
             }.start()
             true
         } else {
@@ -222,8 +216,7 @@ class USBPrinterAdapter {
             Log.v(LOG_TAG, "Connected to device")
             Thread {
                 val bytes = Base64.decode(data, Base64.DEFAULT)
-                val b = mUsbDeviceConnection!!.bulkTransfer(mEndPoint, bytes, bytes.size, 100000)
-                Log.i(LOG_TAG, "Return Status: $b")
+                sendBytesInChunks(bytes)
             }.start()
             true
         } else {
@@ -238,13 +231,34 @@ class USBPrinterAdapter {
         return if (isConnected) {
             Log.v(LOG_TAG, "Connected to device")
             Thread {
-                val b = mUsbDeviceConnection!!.bulkTransfer(mEndPoint, bytes, bytes.size, 100000)
-                Log.i(LOG_TAG, "Return Status: $b")
+                sendBytesInChunks(bytes)
             }.start()
             true
         } else {
             Log.v(LOG_TAG, "failed to connected to device")
             false
+        }
+    }
+
+    // CHUNKING FIX: Sends data in small chunks to prevent buffer overflow and blank paper
+    private fun sendBytesInChunks(byteData: ByteArray) {
+        synchronized(this) {
+            if (mEndPoint == null || mUsbDeviceConnection == null) return
+            val chunkSize = mEndPoint!!.maxPacketSize
+            if (byteData.size > chunkSize) {
+                var chunks: Int = byteData.size / chunkSize
+                if (byteData.size % chunkSize > 0) {
+                    ++chunks
+                }
+                for (i in 0 until chunks) {
+                    val buffer: ByteArray = Arrays.copyOfRange(byteData, i * chunkSize, chunkSize + i * chunkSize)
+                    val b = mUsbDeviceConnection!!.bulkTransfer(mEndPoint, buffer, chunkSize, 100000)
+                    Log.i(LOG_TAG, "Return Status chunk: $b")
+                }
+            } else {
+                val b = mUsbDeviceConnection!!.bulkTransfer(mEndPoint, byteData, byteData.size, 100000)
+                Log.i(LOG_TAG, "Return Status: $b")
+            }
         }
     }
 }
